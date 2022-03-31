@@ -33,9 +33,9 @@ WORKDIR /fog-drone
 COPY --from=builder /build/mavlink-routerd /usr/bin
 
 RUN mkdir -p /etc/mavlink-router
-COPY --from=builder /build/main.conf /etc/mavlink-router
+COPY --from=builder /build/main.uart.conf /etc/mavlink-router
 COPY --from=builder /build/main.eth.conf /etc/mavlink-router
 
-ENTRYPOINT ["/usr/bin/mavlink-routerd", "-c"]
-CMD ["/etc/mavlink-router/main.conf"]
+ENTRYPOINT ["/usr/bin/mavlink-routerd"]
+CMD [""]
  
