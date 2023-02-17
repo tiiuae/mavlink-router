@@ -3,7 +3,8 @@ name: tii-mavlink-router
 on:
   repository_dispatch:
     types: [fog-ros-baseimage-update]
-  push:
+#  push:
+  workflow_dispatch:
 
 jobs:
   tii-mavlink-router:
@@ -11,11 +12,18 @@ jobs:
     steps:
 
       - name: Checkout mavlink-router
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
 
-      - uses: docker/setup-buildx-action@v1
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platform: riscv64
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v2
 
       - name: Set image tag format without suffix
         run: |
@@ -32,7 +40,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v3
+        uses: docker/metadata-action@v4
         with:
           images: ghcr.io/tiiuae/tii-mavlink-router
           tags: |
@@ -48,10 +56,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build tii-mavlink-router image and push
-        uses: docker/build-push-action@v2
+      - name: Build image and push
+        uses: docker/build-push-action@v4
         with:
           context: .
-          push: true
+          platforms: linux/amd64,linux/riscv64
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
