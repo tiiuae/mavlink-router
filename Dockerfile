@@ -1,4 +1,5 @@
-FROM ubuntu:20.04 as builder
+#FROM ubuntu:20.04 as builder
+FROM riscv64/ubuntu:20.04
 
 # Setup timezone
 RUN echo 'Etc/UTC' > /etc/timezone \
@@ -20,7 +21,8 @@ RUN ./autogen.sh \
 
 
 
-FROM ubuntu:20.04
+#FROM ubuntu:20.04
+FROM riscv64/ubuntu:20.04
 
 # Setup timezone
 RUN echo 'Etc/UTC' > /etc/timezone \
@@ -38,4 +40,4 @@ COPY --from=builder /build/main.eth.conf /etc/mavlink-router
 
 ENTRYPOINT ["/usr/bin/mavlink-routerd"]
 CMD [""]
- 
+
