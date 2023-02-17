@@ -1,5 +1,5 @@
 #FROM ubuntu:20.04 as builder
-FROM riscv64/ubuntu:20.04
+FROM riscv64/ubuntu:20.04 as builder
 
 # Setup timezone
 RUN echo 'Etc/UTC' > /etc/timezone \
