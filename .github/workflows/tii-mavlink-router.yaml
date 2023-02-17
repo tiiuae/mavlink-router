@@ -19,7 +19,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
         with:
-          platform: riscv64
+          platforms: riscv64
 
       - name: Set up Docker Buildx
         id: buildx
