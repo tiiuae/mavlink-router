@@ -62,6 +62,6 @@ jobs:
           context: .
           #platforms: linux/amd64,linux/riscv64
           platforms: linux/riscv64
-          push: false
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
