@@ -3,8 +3,8 @@ name: tii-mavlink-router
 on:
   repository_dispatch:
     types: [fog-ros-baseimage-update]
-#  push:
-  workflow_dispatch:
+  push:
+    branches: [multi_arch_build]
 
 jobs:
   tii-mavlink-router:
