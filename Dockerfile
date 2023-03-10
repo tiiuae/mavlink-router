@@ -1,4 +1,4 @@
-FROM ubuntu:20.04 as builder
+FROM ${TARGETARCH}/ubuntu:20.04 as builder
 
 # Setup timezone
 RUN echo 'Etc/UTC' > /etc/timezone \
@@ -18,9 +18,10 @@ RUN ./autogen.sh \
     && ./configure CFLAGS='-g -O2' --sysconfdir=/etc --localstatedir=/var --libdir=/usr/lib64 --prefix=/usr --disable-systemd \
     && make
 
+#  ▲               runtime ──┐
+#  └── build                 ▼
 
-
-FROM ubuntu:20.04
+FROM ${TARGETARCH}/ubuntu:20.04
 
 # Setup timezone
 RUN echo 'Etc/UTC' > /etc/timezone \
@@ -38,4 +39,4 @@ COPY --from=builder /build/main.eth.conf /etc/mavlink-router
 
 ENTRYPOINT ["/usr/bin/mavlink-routerd"]
 CMD [""]
- 
+
