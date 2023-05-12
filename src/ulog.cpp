@@ -61,6 +61,8 @@ bool ULog::start()
         return false;
     }
 
+    log_info("Arming detected");
+
     _waiting_header = true;
     _waiting_first_msg_offset = false;
     _expected_seq = 0;
@@ -80,6 +82,11 @@ void ULog::stop()
         log_info("ULog not started");
         return;
     }
+    if (_closing) {
+        return;
+    }
+
+    log_info("Disarming detected");
 
     bzero(&cmd, sizeof(cmd));
     cmd.command = MAV_CMD_LOGGING_STOP;
@@ -90,20 +97,34 @@ void ULog::stop()
     _send_msg(&msg, _target_system_id);
 
     _buffer_len = 0;
+    log_info("Log stop send, flushing...");
     /* Write the last partial message to avoid corrupt the end of the file */
     while (_buffer_partial_len) {
         if (!_logging_flush()) {
             break;
         }
     }
-
-    LogEndpoint::stop();
+    _closing = true;
+    _log_data_received = true;
 }
 
 int ULog::write_msg(const struct buffer *buffer)
 {
     const bool mavlink2 = buffer->data[0] == MAVLINK_STX;
     uint8_t trimmed_zeros;
+
+    if (buffer->curr.msg_id == MAVLINK_MSG_ID_HEARTBEAT) {
+        if (_closing) {
+            if (_log_data_received) {
+                _log_data_received = false;
+            } else {
+                _closing = false;
+                log_info("Closing file..");
+                LogEndpoint::stop();
+                log_info("Closed.");
+            }
+        }
+    }
 
     /* set the expected system id to the first autopilot that we get a heartbeat from */
     if (_target_system_id == -1 && buffer->curr.msg_id == MAVLINK_MSG_ID_HEARTBEAT
@@ -152,6 +173,7 @@ int ULog::write_msg(const struct buffer *buffer)
         }
 
         if (cmd.result == MAV_RESULT_ACCEPTED) {
+            log_info("Logging request accepted by target device");
             _remove_logging_start_timeout();
             if (!_start_alive_timeout()) {
                 log_warning("Could not start liveness timeout - mavlink router log won't be able "
@@ -176,6 +198,7 @@ int ULog::write_msg(const struct buffer *buffer)
     }
         /* fall through */
     case MAVLINK_MSG_ID_LOGGING_DATA: {
+        _log_data_received = true;
         if (trimmed_zeros) {
             mavlink_logging_data_t ulog_data;
             memcpy(&ulog_data, buffer->curr.payload, payload_len);

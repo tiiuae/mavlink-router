@@ -51,6 +51,9 @@ private:
     uint16_t _buffer_index = 0;
     uint8_t _buffer_partial[BUFFER_LEN / 2];
     uint16_t _buffer_partial_len = 0;
+    bool _closing = false;
+    bool _log_data_received = false;
+
 
     bool _logging_seq(uint16_t seq, bool *drop);
     void _logging_data_process(mavlink_logging_data_t *msg);
