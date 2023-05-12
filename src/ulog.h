@@ -54,7 +54,6 @@ private:
     bool _closing = false;
     bool _log_data_received = false;
 
-
     bool _logging_seq(uint16_t seq, bool *drop);
     void _logging_data_process(mavlink_logging_data_t *msg);
     bool _logging_flush();

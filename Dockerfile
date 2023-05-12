@@ -1,48 +1,43 @@
-# Due to different naming convention, use this workaround
-FROM ubuntu:22.04 as builder-amd64
-FROM ubuntu:22.04 as builder-arm64
-FROM riscv64/ubuntu:22.04 as builder-riscv64
-
-FROM builder-${TARGETARCH} as builder
+# Use ROS builder image just to get the build tools in place
+FROM ghcr.io/tiiuae/fog-ros-baseimage-builder:feat-multiarch-pkcs11 AS builder
 
 # Setup timezone
-RUN echo 'Etc/UTC' > /etc/timezone \
-    && ln -s /usr/share/zoneinfo/Etc/UTC /etc/localtime \
-    && apt-get update && apt-get install -q -y tzdata \
-    && rm -rf /var/lib/apt/lists/*
+RUN ln -s -f /usr/share/zoneinfo/Etc/UTC /etc/localtime
+
+#RUN apt-get update && apt-get install -y --no-install-recommends \
+#    python3-future python3-lxml git python3-pip \
+#    build-essential libtool autoconf cmake \
+#    pkg-config gcc g++ autotools-dev automake \
+#    && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-future python3-lxml git python3-pip \
-    build-essential libtool autoconf \
-    pkg-config gcc g++ autotools-dev automake \
+    meson ninja \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install ninja meson
+#RUN pip3 install ninja meson
 
 WORKDIR /build
+
 COPY . .
+
 RUN meson setup --buildtype=release -Dsystemdsystemunitdir=/usr/lib/systemd/system build . \
     && ninja -C build
 
 #  ▲               runtime ──┐
 #  └── build                 ▼
 
-FROM builder-${TARGETARCH} as runtime
+FROM ghcr.io/tiiuae/fog-minimal-container-image:sha-0b457dc AS runtime
+
+ENTRYPOINT ["/usr/bin/mavlink-routerd"]
+CMD ["-c", "/etc/mavlink-router/main.conf"]
+
+RUN mkdir -p /etc/mavlink-router
+COPY conf /etc/mavlink-router
 
 # Setup timezone
-RUN echo 'Etc/UTC' > /etc/timezone \
-    && ln -s /usr/share/zoneinfo/Etc/UTC /etc/localtime \
-    && apt-get update && apt-get install -q -y tzdata \
-    && rm -rf /var/lib/apt/lists/*
+RUN ln -s -f /usr/share/zoneinfo/Etc/UTC /etc/localtime
 
 WORKDIR /fog-drone
 
 COPY --from=builder /build/build/src/mavlink-routerd /usr/bin
-
-RUN mkdir -p /etc/mavlink-router
-COPY --from=builder /build/main.uart.conf /etc/mavlink-router
-COPY --from=builder /build/main.eth.conf /etc/mavlink-router
-
-ENTRYPOINT ["/usr/bin/mavlink-routerd"]
-CMD [""]
 
