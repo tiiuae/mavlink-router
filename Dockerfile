@@ -1,4 +1,9 @@
-FROM ${TARGETARCH}/ubuntu:22.04 as builder
+# Due to different naming convention, use this workaround
+FROM ubuntu:22.04 as builder-amd64
+FROM ubuntu:22.04 as builder-arm64
+FROM riscv64/ubuntu:22.04 as builder-riscv64
+
+FROM builder-${TARGETARCH} as builder
 
 # Setup timezone
 RUN echo 'Etc/UTC' > /etc/timezone \
@@ -22,7 +27,7 @@ RUN meson setup --buildtype=release -Dsystemdsystemunitdir=/usr/lib/systemd/syst
 #  ▲               runtime ──┐
 #  └── build                 ▼
 
-FROM ${TARGETARCH}/ubuntu:22.04
+FROM builder-${TARGETARCH} as runtime
 
 # Setup timezone
 RUN echo 'Etc/UTC' > /etc/timezone \
