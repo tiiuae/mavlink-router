@@ -136,7 +136,7 @@ configure_file(
 )
 
 subdir('src')
-subdir('examples')
+#subdir('examples')
 
 # Use clang-tidy to modernize code and check for common code style issues
 clangtidy = find_program('run-clang-tidy', required: false)
