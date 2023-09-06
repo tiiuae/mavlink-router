@@ -19,8 +19,8 @@ conf.set('BINDIR', join_paths(get_option('prefix'), get_option('bindir')))
 conf.set_quoted('VERSION', meson.project_version(), description : 'Project version')
 conf.set_quoted('PACKAGE', meson.project_name())
 
-cxx = meson.get_compiler('cpp')
-cc = meson.get_compiler('c')
+cxx = meson.get_compiler('cpp', native : false)
+cc = meson.get_compiler('c', native : false)
 
 # Mandatory dependencies
 dep_math = cxx.find_library('m')
@@ -100,6 +100,9 @@ possible_cxx_flags = [
         '-Wtype-limits',
         '-Wuninitialized',
 ]
+
+#add_global_arguments('-march=x86-64', language : 'cpp')
+#add_global_arguments('-march=x86-64', language : 'c')
 
 add_project_arguments(cc.get_supported_arguments(possible_cc_flags), language : 'c')
 add_project_arguments(cc.get_supported_arguments(possible_cxx_flags), language : 'cpp')
