@@ -19,8 +19,8 @@ conf.set('BINDIR', join_paths(get_option('prefix'), get_option('bindir')))
 conf.set_quoted('VERSION', meson.project_version(), description : 'Project version')
 conf.set_quoted('PACKAGE', meson.project_name())
 
-cxx = meson.get_compiler('cpp')
-cc = meson.get_compiler('c')
+cxx = meson.get_compiler('cpp', native : false)
+cc = meson.get_compiler('c', native : false)
 
 # Mandatory dependencies
 dep_math = cxx.find_library('m')
