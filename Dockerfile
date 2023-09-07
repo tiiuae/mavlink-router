@@ -10,7 +10,10 @@ WORKDIR /build
 
 COPY . .
 
-RUN meson setup --buildtype=release -Dsystemdsystemunitdir=/usr/lib/systemd/system build . \
+# If target architecture is x86_64 the meson setup shall set '-march' to use build for generic x86-64
+#  instead of using possible instruction set extensions of native host cpu of the build machine
+RUN amd64_fix=$([ "$(uname -m)" == "x86_64" ] && echo "-Dc_args='-march=x86-64' -Dcpp_args='-march=x86-64'" || echo ""); \
+    meson setup --buildtype=release $amd64_fix -Dsystemdsystemunitdir=/usr/lib/systemd/system build . \
     && ninja -C build
 
 #  ▲               runtime ──┐
