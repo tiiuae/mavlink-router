@@ -21,13 +21,15 @@ RUN amd64_fix=$([ "$(uname -m)" == "x86_64" ] && echo "-Dc_args='-march=x86-64' 
 
 FROM ghcr.io/tiiuae/fog-minimal-container-image:sha-0b457dc AS runtime
 
-ENTRYPOINT ["/usr/bin/mavlink-routerd"]
-CMD ["-c", "/etc/mavlink-router/main.conf"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD [""]
 
 RUN mkdir -p /etc/mavlink-router
 
 COPY conf /etc/mavlink-router
+COPY entrypoint.sh /entrypoint.sh
 
 WORKDIR /fog-drone
 
 COPY --from=builder /build/build/src/mavlink-routerd /usr/bin
+
