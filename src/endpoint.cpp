@@ -1116,6 +1116,13 @@ int UdpEndpoint::open_ipv4(const char *ip, unsigned long port, UdpEndpointConfig
         return -errno;
     }
 
+    int socket_reuse = 1;
+    int result = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &socket_reuse, sizeof(socket_reuse));
+    if (result != 0) {
+        log_error("setsockopt REUSEADDR failed for socket: %s:%lu (%m)", ip, port);
+        return -errno;
+    }
+
     sockaddr.sin_family = AF_INET;
     sockaddr.sin_addr.s_addr = inet_addr(ip);
     sockaddr.sin_port = htons(port);
