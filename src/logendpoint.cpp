@@ -502,10 +502,12 @@ void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
             const bool is_armed = heartbeat->base_mode & MAV_MODE_FLAG_SAFETY_ARMED;
 
             if (_file == -1 && is_armed) {
+                log_info("Arming detected");
                 if (!start()) {
                     _config.log_mode = LogMode::disabled;
                 }
             } else if (_file != -1 && !is_armed) {
+                log_info("Disarming detected");
                 stop();
             }
         }

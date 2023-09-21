@@ -61,8 +61,6 @@ bool ULog::start()
         return false;
     }
 
-    log_info("Arming detected");
-
     _waiting_header = true;
     _waiting_first_msg_offset = false;
     _expected_seq = 0;
@@ -85,8 +83,6 @@ void ULog::stop()
     if (_closing) {
         return;
     }
-
-    log_info("Disarming detected");
 
     bzero(&cmd, sizeof(cmd));
     cmd.command = MAV_CMD_LOGGING_STOP;
