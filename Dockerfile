@@ -1,5 +1,5 @@
 # Use ROS builder image just to get the build tools in place
-FROM ghcr.io/tiiuae/fog-ros-baseimage-builder:feat-multiarch-pkcs11 AS builder
+FROM ghcr.io/tiiuae/fog-ros-baseimage-builder:sha-6d67ecf AS builder
 
 RUN apt update \
     && apt install -y --no-install-recommends \
@@ -19,7 +19,7 @@ RUN amd64_fix=$([ "$(uname -m)" == "x86_64" ] && echo "-Dc_args='-march=x86-64' 
 #  ▲               runtime ──┐
 #  └── build                 ▼
 
-FROM ghcr.io/tiiuae/fog-minimal-container-image:sha-0b457dc AS runtime
+FROM ghcr.io/tiiuae/fog-minimal-container-image:sha-1d8d712 AS runtime
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD [""]
