@@ -265,7 +265,14 @@ void ULog::_logging_data_process(mavlink_logging_data_t *msg)
         }
 
         if (memcmp(magic, msg->data, sizeof(magic))) {
-            log_error("Invalid ULog Magic number, restarting ULog...");
+            log_error("Invalid ULog Magic number, restarting ULog... [%x %x %x %x %x %x %x]",
+                      msg->data[0],
+                      msg->data[1],
+                      msg->data[2],
+                      msg->data[3],
+                      msg->data[4],
+                      msg->data[5],
+                      msg->data[6]);
             stop();
             start();
             return;
