@@ -70,6 +70,10 @@ bool ULog::start()
     _buffer_index = 0;
     _buffer_partial_len = 0;
 
+    _data_waiting_first_msg_offset = false;
+    _data_buffer_len = 0;
+    _data_buffer_index = 0;
+    _data_buffer_partial_len = 0;
     return true;
 }
 
@@ -97,10 +101,16 @@ void ULog::stop()
     _send_msg(&msg, _target_system_id);
 
     _buffer_len = 0;
+    _data_buffer_len = 0;
     log_info("Log stop send, flushing...");
     /* Write the last partial message to avoid corrupt the end of the file */
     while (_buffer_partial_len) {
         if (!_logging_flush()) {
+            break;
+        }
+    }
+    while (_data_buffer_partial_len) {
+        if (!_logging_flush_data()) {
             break;
         }
     }
@@ -195,8 +205,18 @@ int ULog::write_msg(const struct buffer *buffer)
         mavlink_msg_logging_ack_encode(LOG_ENDPOINT_SYSTEM_ID, MAV_COMP_ID_ALL, &msg, &ack);
         _send_msg(&msg, _target_system_id);
         /* message will be handled by MAVLINK_MSG_ID_LOGGING_DATA case */
+
+        if (trimmed_zeros) {
+            mavlink_logging_data_t ulog_data;
+            memcpy(&ulog_data, buffer->curr.payload, payload_len);
+            memset(((uint8_t *)&ulog_data) + payload_len, 0, trimmed_zeros);
+            _logging_definitions_process(&ulog_data);
+        } else {
+            auto *ulog_data = (mavlink_logging_data_t *)buffer->curr.payload;
+            _logging_definitions_process(ulog_data);
+        }
+        break;
     }
-        /* fall through */
     case MAVLINK_MSG_ID_LOGGING_DATA: {
         _log_data_received = true;
         if (trimmed_zeros) {
@@ -248,14 +268,8 @@ bool ULog::_logging_seq(uint16_t seq, bool *drop)
     return true;
 }
 
-void ULog::_logging_data_process(mavlink_logging_data_t *msg)
+void ULog::_logging_definitions_process(mavlink_logging_data_t *msg)
 {
-    bool drops = false;
-
-    if (!_logging_seq(msg->sequence, &drops)) {
-        return;
-    }
-
     /* Waiting for ULog header? */
     if (_waiting_header) {
         const uint8_t magic[] = ULOG_MAGIC;
@@ -283,20 +297,12 @@ void ULog::_logging_data_process(mavlink_logging_data_t *msg)
         _waiting_header = false;
     }
 
-    if (drops) {
-        _logging_flush();
-
-        _buffer_len = 0;
-        _buffer_index = 0;
-        _waiting_first_msg_offset = true;
-    }
-
     /*
      * Do not cause a buffer overflow, it should only happens if a ULog message
      * don't fit in _msg_buffer
      */
     if ((_buffer_len + msg->length) > BUFFER_LEN) {
-        log_warning("Buffer full, dropping everything on buffer");
+        log_warning("Header Buffer full, dropping everything on buffer");
 
         _buffer_len = 0;
         _waiting_first_msg_offset = true;
@@ -331,6 +337,126 @@ void ULog::_logging_data_process(mavlink_logging_data_t *msg)
     memcpy(&_buffer[_buffer_index + _buffer_len], &msg->data[begin], msg->length);
     _buffer_len += msg->length;
     _logging_flush();
+}
+
+void ULog::_logging_data_process(mavlink_logging_data_t *msg)
+{
+    bool drops = false;
+
+    if (!_logging_seq(msg->sequence, &drops)) {
+        return;
+    }
+
+    if (drops) {
+        _logging_flush();
+
+        _data_buffer_len = 0;
+        _data_buffer_index = 0;
+        _data_waiting_first_msg_offset = true;
+    }
+
+    /*
+     * Do not cause a buffer overflow, it should only happens if a ULog message
+     * don't fit in _msg_buffer
+     */
+    if ((_data_buffer_len + msg->length) > BUFFER_LEN) {
+        log_warning("Data buffer full, dropping everything on buffer");
+
+        _data_buffer_len = 0;
+        _data_waiting_first_msg_offset = true;
+    }
+
+    /*
+     * ULog message fits on _buffer but it need move all valid data to
+     * the being of buffer.
+     */
+    if ((_data_buffer_index + _data_buffer_len + msg->length) > BUFFER_LEN) {
+        memmove(_data_buffer, &_data_buffer[_data_buffer_index], _data_buffer_len);
+        _data_buffer_index = 0;
+    }
+
+    uint8_t begin = 0;
+
+    if (_data_waiting_first_msg_offset) {
+        if (msg->first_message_offset == NO_FIRST_MSG_OFFSET) {
+            /* no useful information in this message */
+            return;
+        }
+
+        _data_waiting_first_msg_offset = false;
+        begin = msg->first_message_offset;
+    }
+
+    if (!msg->length) {
+        return;
+    }
+
+    msg->length = msg->length - begin;
+    memcpy(&_data_buffer[_data_buffer_index + _data_buffer_len], &msg->data[begin], msg->length);
+    _data_buffer_len += msg->length;
+    _logging_flush_data();
+}
+
+bool ULog::_logging_flush_data()
+{
+    while (_data_buffer_partial_len) {
+        const ssize_t r = write(_datafile, _data_buffer_partial, _data_buffer_partial_len);
+        if (r == 0 || (r == -1 && errno == EAGAIN)) {
+            return true;
+        }
+        if (r < 0) {
+            log_error("Unable to write to ULog header file: (%m)");
+            return false;
+        }
+
+        _data_buffer_partial_len -= r;
+        memmove(_data_buffer_partial, &_data_buffer_partial[r], _data_buffer_partial_len);
+    }
+
+    while (_data_buffer_len >= sizeof(struct ulog_msg_header) && !_data_buffer_partial_len) {
+        auto *header = (struct ulog_msg_header *)&_data_buffer[_data_buffer_index];
+        const uint16_t full_msg_size = header->msg_size + sizeof(struct ulog_msg_header);
+
+        if (full_msg_size > _data_buffer_len) {
+            break;
+        }
+
+        const ssize_t r = write(_datafile, header, full_msg_size);
+        if (r == full_msg_size) {
+            _data_buffer_len -= full_msg_size;
+            _data_buffer_index += full_msg_size;
+            continue;
+        }
+        if (r == 0 || (r == -1 && errno == EAGAIN)) {
+            break;
+        }
+        if (r < 0) {
+            log_error("Unable to write to ULog file: (%m)");
+            return false;
+        }
+
+        /* Handle partial write */
+        _data_buffer_partial_len = full_msg_size - r;
+
+        if (_data_buffer_partial_len > sizeof(_data_buffer_partial)) {
+            _data_buffer_partial_len = 0;
+            log_error("Partial buffer is not big enough to store the "
+                      "ULog entry(type=%c len=%u), ULog file is now corrupt.",
+                      header->msg_type,
+                      full_msg_size);
+            break;
+        }
+
+        memcpy(_data_buffer_partial,
+               &_data_buffer[_data_buffer_index + r],
+               _data_buffer_partial_len);
+
+        _data_buffer_len -= full_msg_size;
+        _data_buffer_index += full_msg_size;
+        break;
+    }
+
+    return true;
 }
 
 bool ULog::_logging_flush()

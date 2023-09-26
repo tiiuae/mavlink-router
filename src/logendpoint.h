@@ -29,6 +29,8 @@
 
 #define LOG_ENDPOINT_SYSTEM_ID 2
 
+#define LOG_ENDPOINT_DATA_BUF_SIZE 1024
+
 enum class LogMode {
     always = 0,  ///< Log from start until mavlink-router exits
     while_armed, ///< Start logging when the vehicle is armed until it's disarmed
@@ -71,14 +73,17 @@ protected:
     LogOptions _config;
     int _target_system_id;
     int _file = -1;
+    int _datafile = -1;
 
     struct {
         Timeout *logging_start = nullptr;
         Timeout *fsync = nullptr;
+        Timeout *fsync_data = nullptr;
         Timeout *alive = nullptr;
     } _timeout;
     uint32_t _timeout_write_total = 0;
     aiocb _fsync_cb = {};
+    aiocb _fsync_data_cb = {};
 
     virtual const char *_get_logfile_extension() = 0;
 
@@ -90,11 +95,12 @@ protected:
     virtual bool _alive_timeout();
 
     bool _fsync();
+    bool _fsync_data();
 
     void _handle_auto_start_stop(const struct buffer *pbuf);
 
 private:
-    int _get_file(const char *extension);
+    int _get_file(const char *extension, char *filename, size_t fnamesize);
     static uint32_t _get_prefix(DIR *dir);
     static DIR *_open_or_create_dir(const char *name);
 
@@ -105,4 +111,6 @@ private:
     void _delete_old_logs();
 
     char _filename[64];
+    char _datafilename[64];
+    uint8_t _data_buf[LOG_ENDPOINT_DATA_BUF_SIZE];
 };
