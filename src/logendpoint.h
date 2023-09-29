@@ -29,7 +29,9 @@
 
 #define LOG_ENDPOINT_SYSTEM_ID 2
 
-#define LOG_ENDPOINT_DATA_BUF_SIZE 1024
+#ifdef MAVLINK_PARALLEL_LOGGING
+#    define LOG_ENDPOINT_DATA_BUF_SIZE 1024
+#endif
 
 enum class LogMode {
     always = 0,  ///< Log from start until mavlink-router exits
@@ -73,17 +75,23 @@ protected:
     LogOptions _config;
     int _target_system_id;
     int _file = -1;
+#ifdef MAVLINK_PARALLEL_LOGGING
     int _datafile = -1;
+#endif
 
     struct {
         Timeout *logging_start = nullptr;
         Timeout *fsync = nullptr;
+#ifdef MAVLINK_PARALLEL_LOGGING
         Timeout *fsync_data = nullptr;
+#endif
         Timeout *alive = nullptr;
     } _timeout;
     uint32_t _timeout_write_total = 0;
     aiocb _fsync_cb = {};
+#ifdef MAVLINK_PARALLEL_LOGGING
     aiocb _fsync_data_cb = {};
+#endif
 
     virtual const char *_get_logfile_extension() = 0;
 
@@ -95,7 +103,9 @@ protected:
     virtual bool _alive_timeout();
 
     bool _fsync();
+#ifdef MAVLINK_PARALLEL_LOGGING
     bool _fsync_data();
+#endif
 
     void _handle_auto_start_stop(const struct buffer *pbuf);
 
@@ -111,6 +121,8 @@ private:
     void _delete_old_logs();
 
     char _filename[64];
+#ifdef MAVLINK_PARALLEL_LOGGING
     char _datafilename[64];
     uint8_t _data_buf[LOG_ENDPOINT_DATA_BUF_SIZE];
+#endif
 };

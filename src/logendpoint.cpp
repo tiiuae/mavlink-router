@@ -64,7 +64,9 @@ LogEndpoint::LogEndpoint(std::string name, LogOptions conf)
     assert(!_config.logs_dir.empty());
     _add_sys_comp_id(LOG_ENDPOINT_SYSTEM_ID, 0);
     _fsync_cb.aio_fildes = -1;
+#ifdef MAVLINK_PARALLEL_LOGGING
     _fsync_data_cb.aio_fildes = -1;
+#endif
 
 #if HAVE_DECL_AIO_INIT
     aioinit aio_init_data{};
@@ -372,13 +374,14 @@ void LogEndpoint::stop()
         _timeout.fsync = nullptr;
     }
 
+    char log_file[PATH_MAX];
+#ifdef MAVLINK_PARALLEL_LOGGING
     fsync(_datafile);
     close(_datafile);
     _datafile = -1;
     _fsync_data_cb.aio_fildes = -1;
 
     // copy data file in the end of ulg file
-    char log_file[PATH_MAX];
     if (snprintf(log_file, sizeof(log_file), "%s/%s", _config.logs_dir.c_str(), _datafilename)
         < (int)sizeof(log_file)) {
         int r = open(log_file, O_RDONLY);
@@ -392,17 +395,20 @@ void LogEndpoint::stop()
             log_error("Unable to open Data file for concatenation (%s): (%m)", log_file);
         }
     }
+#endif
 
     fsync(_file);
     close(_file);
     _file = -1;
     _fsync_cb.aio_fildes = -1;
 
+#ifdef MAVLINK_PARALLEL_LOGGING
     // Remove data file
     int err = remove(log_file);
     if (err < 0) {
         log_error("Error deleting datafile %s: %m", log_file);
     }
+#endif
 
     // change file permissions to read-only to mark them as finished
     if (snprintf(log_file, sizeof(log_file), "%s/%s", _config.logs_dir.c_str(), _filename)
@@ -427,11 +433,13 @@ bool LogEndpoint::start()
         return false;
     }
 
+#ifdef MAVLINK_PARALLEL_LOGGING
     _datafile = _get_file("data", _datafilename, sizeof(_datafilename));
     if (_datafile < 0) {
         _datafile = -1;
         return false;
     }
+#endif
 
     _timeout.logging_start = Mainloop::get_instance().add_timeout(
         MSEC_PER_SEC,
@@ -451,6 +459,7 @@ bool LogEndpoint::start()
         goto fsync_timeout_error;
     }
 
+#ifdef MAVLINK_PARALLEL_LOGGING
     // Call fsync_data once per second
     _timeout.fsync_data
         = Mainloop::get_instance().add_timeout(MSEC_PER_SEC,
@@ -465,7 +474,9 @@ bool LogEndpoint::start()
              _target_system_id,
              _filename,
              _datafilename);
-
+#else
+    log_info("Logging target system_id=%u on %s", _target_system_id, _filename);
+#endif
     return true;
 
 fsync_timeout_error:
@@ -474,8 +485,10 @@ fsync_timeout_error:
 logging_timeout_error:
     close(_file);
     _file = -1;
+#ifdef MAVLINK_PARALLEL_LOGGING
     close(_datafile);
     _datafile = -1;
+#endif
     return false;
 }
 
@@ -509,6 +522,7 @@ bool LogEndpoint::_fsync()
     return true;
 }
 
+#ifdef MAVLINK_PARALLEL_LOGGING
 bool LogEndpoint::_fsync_data()
 {
     if (_datafile < 0) {
@@ -526,6 +540,7 @@ bool LogEndpoint::_fsync_data()
 
     return true;
 }
+#endif
 
 void LogEndpoint::_remove_logging_start_timeout()
 {
