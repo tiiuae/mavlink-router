@@ -19,7 +19,7 @@ RUN amd64_fix=$([ "$(uname -m)" == "x86_64" ] && echo "-Dc_args='-march=x86-64' 
 #  ▲               runtime ──┐
 #  └── build                 ▼
 
-FROM ghcr.io/tiiuae/fog-minimal-container-image:v3.0.0 AS runtime
+FROM ghcr.io/tiiuae/fog-minimal-container-image:sha-1d8d712 AS runtime
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD [""]
