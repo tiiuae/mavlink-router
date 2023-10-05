@@ -35,7 +35,7 @@ if [ "${LOGGING_DIR}" != "" ]; then
     /usr/bin/mavlink-routerd -c /etc/mavlink-router/main.conf
 
 elif [ "$1" != "" ]; then
-    /usr/bin/mavlink-routerd "$args"
+    /usr/bin/mavlink-routerd $args
 else
     /usr/bin/mavlink-routerd
 fi
