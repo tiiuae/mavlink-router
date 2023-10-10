@@ -23,19 +23,19 @@ if [ "${LOGGING_DIR}" != "" ]; then
     echo "Logging into '${LOGGING_DIR}' - triggered: '${log_mode}'"
     if [ $min_free_space != 0 ]; then
         echo "Auto-delete old logfiles until storage space above ${min_free_space} bytes"
-        sed -i "/.General./a \ \ \ \ MinFreeSpace=${min_free_space}" /etc/mavlink-router/main.conf
+        sed -i "/.General./a \ \ \ \ MinFreeSpace=${min_free_space}" /etc/mavlink-router/default.conf
     elif [ $max_log_files != 0 ]; then
         echo "Auto-delete old logfiles if more than ${max_log_files} logfiles found"
-        sed -i "/.General./a \ \ \ \ MaxLogFiles=${max_log_files}" /etc/mavlink-router/main.conf
+        sed -i "/.General./a \ \ \ \ MaxLogFiles=${max_log_files}" /etc/mavlink-router/default.conf
     fi
-    sed -i "/.General./a \ \ \ \ LogMode=${log_mode}" /etc/mavlink-router/main.conf
-    sed -i "/.General./a \ \ \ \ Log=${LOGGING_DIR}" /etc/mavlink-router/main.conf
+    sed -i "/.General./a \ \ \ \ LogMode=${log_mode}" /etc/mavlink-router/default.conf
+    sed -i "/.General./a \ \ \ \ Log=${LOGGING_DIR}" /etc/mavlink-router/default.conf
 
     echo " "
-    /usr/bin/mavlink-routerd -c /etc/mavlink-router/main.conf
+    /usr/bin/mavlink-routerd -c /etc/mavlink-router/default.conf
 
 elif [ "$1" != "" ]; then
-    /usr/bin/mavlink-routerd "$args"
+    /usr/bin/mavlink-routerd $args
 else
     /usr/bin/mavlink-routerd
 fi

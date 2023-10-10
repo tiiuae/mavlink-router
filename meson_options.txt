@@ -2,3 +2,8 @@ option('systemdsystemunitdir',
        description: 'systemd unit directory',
        type: 'string',
        value: 'auto')
+
+option('parallel_logging',
+       description: 'Enable parallel logging feature',
+       type: 'boolean',
+       value: false)

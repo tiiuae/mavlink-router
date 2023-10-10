@@ -28,6 +28,11 @@ dep_rt = cxx.find_library('rt')
 dep_thread = dependency('threads')
 
 # Optional dependencies
+parallel_logging_opt = get_option('parallel_logging')
+if parallel_logging_opt == true
+        add_project_arguments('-DMAVLINK_PARALLEL_LOGGING', language : ['c', 'cpp'])
+endif
+
 systemd_system_unit_dir = get_option('systemdsystemunitdir')
 if systemd_system_unit_dir == 'auto'
 		dep_systemd = dependency('systemd')

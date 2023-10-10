@@ -1,5 +1,5 @@
 # Use ROS builder image just to get the build tools in place
-FROM ghcr.io/tiiuae/fog-ros-baseimage-builder:sha-6d67ecf AS builder
+FROM ghcr.io/tiiuae/fog-ros-baseimage-builder:v3.0.1 AS builder
 
 RUN apt update \
     && apt install -y --no-install-recommends \
@@ -13,7 +13,7 @@ COPY . .
 # If target architecture is x86_64 the meson setup shall set '-march' to use build for generic x86-64
 #  instead of using possible instruction set extensions of native host cpu of the build machine
 RUN amd64_fix=$([ "$(uname -m)" == "x86_64" ] && echo "-Dc_args='-march=x86-64' -Dcpp_args='-march=x86-64'" || echo ""); \
-    meson setup --buildtype=release $amd64_fix -Dsystemdsystemunitdir=/usr/lib/systemd/system build . \
+    meson setup --buildtype=release $amd64_fix -Dparallel_logging=true -Dsystemdsystemunitdir=/usr/lib/systemd/system build . \
     && ninja -C build
 
 #  ▲               runtime ──┐
