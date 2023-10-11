@@ -71,6 +71,7 @@ bool ULog::start()
     _buffer_partial_len = 0;
 
 #ifdef MAVLINK_PARALLEL_LOGGING
+    _expected_data_seq = 0;
     _data_waiting_first_msg_offset = false;
     _data_buffer_len = 0;
     _data_buffer_index = 0;
@@ -252,22 +253,22 @@ int ULog::write_msg(const struct buffer *buffer)
 /*
  * Return true if the message with seq should be handled.
  */
-bool ULog::_logging_seq(uint16_t seq, bool *drop)
+bool ULog::_logging_seq(uint16_t seq, bool *drop, uint16_t *expected_seq)
 {
-    if (_expected_seq == seq) {
-        _expected_seq++;
+    if (*expected_seq == seq) {
+        (*expected_seq)++;
         *drop = false;
         return true;
     }
 
-    if (seq > _expected_seq) {
-        const uint16_t diff = seq - _expected_seq;
+    if (seq > *expected_seq) {
+        const uint16_t diff = seq - *expected_seq;
         if (diff > (UINT16_MAX / 2)) {
             /* _expected_seq wrapped and a re-transmission of a non-wrapped message happened */
             return false;
         }
     } else {
-        const uint16_t diff = _expected_seq - seq;
+        const uint16_t diff = *expected_seq - seq;
         if (diff < (UINT16_MAX / 2)) {
             /* re-transmission */
             return false;
@@ -275,7 +276,7 @@ bool ULog::_logging_seq(uint16_t seq, bool *drop)
     }
 
     *drop = true;
-    _expected_seq = seq + 1;
+    *expected_seq = seq + 1;
     return true;
 }
 
@@ -307,6 +308,20 @@ void ULog::_logging_process(mavlink_logging_data_t *msg)
         memmove(msg->data, &msg->data[ULOG_HEADER_SIZE], msg->length);
         msg->length -= ULOG_HEADER_SIZE;
         _waiting_header = false;
+    }
+
+    bool drops = false;
+
+    if (!_logging_seq(msg->sequence, &drops, &_expected_seq)) {
+        return;
+    }
+
+    if (drops) {
+        _logging_flush();
+
+        _buffer_len = 0;
+        _buffer_index = 0;
+        _waiting_first_msg_offset = true;
     }
 
     /*
@@ -355,12 +370,12 @@ void ULog::_logging_data_process(mavlink_logging_data_t *msg)
 {
     bool drops = false;
 
-    if (!_logging_seq(msg->sequence, &drops)) {
+    if (!_logging_seq(msg->sequence, &drops, &_expected_data_seq)) {
         return;
     }
 
     if (drops) {
-        _logging_flush();
+        _logging_flush_data();
 
         _data_buffer_len = 0;
         _data_buffer_index = 0;
@@ -475,7 +490,7 @@ void ULog::_logging_data_process(mavlink_logging_data_t *msg)
 {
     bool drops = false;
 
-    if (!_logging_seq(msg->sequence, &drops)) {
+    if (!_logging_seq(msg->sequence, &drops, &_expected_seq)) {
         return;
     }
 
