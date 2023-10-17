@@ -307,7 +307,7 @@ int Mainloop::loop()
     }
 
     if (_log_endpoint != nullptr) {
-        _log_endpoint->stop();
+        _log_endpoint->stopping();
     }
 
     clear_endpoints();

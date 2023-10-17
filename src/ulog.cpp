@@ -61,8 +61,6 @@ bool ULog::start()
         return false;
     }
 
-    log_info("Arming detected");
-
     _waiting_header = true;
     _waiting_first_msg_offset = false;
     _expected_seq = 0;
@@ -70,17 +68,15 @@ bool ULog::start()
     _buffer_index = 0;
     _buffer_partial_len = 0;
 
-#ifdef MAVLINK_PARALLEL_LOGGING
     _expected_data_seq = 0;
     _data_waiting_first_msg_offset = false;
     _data_buffer_len = 0;
     _data_buffer_index = 0;
     _data_buffer_partial_len = 0;
-#endif
     return true;
 }
 
-void ULog::stop()
+void ULog::stopping()
 {
     mavlink_message_t msg;
     mavlink_command_long_t cmd;
@@ -92,8 +88,7 @@ void ULog::stop()
     if (_closing) {
         return;
     }
-
-    log_info("Disarming detected");
+    _closing = true;
 
     bzero(&cmd, sizeof(cmd));
     cmd.command = MAV_CMD_LOGGING_STOP;
@@ -103,10 +98,17 @@ void ULog::stop()
     mavlink_msg_command_long_encode(LOG_ENDPOINT_SYSTEM_ID, MAV_COMP_ID_ALL, &msg, &cmd);
     _send_msg(&msg, _target_system_id);
 
+    if (_force_stop) {
+        stop();
+    }
+    _force_stop = false;
+    LogEndpoint::stopping();
+}
+
+void ULog::stop()
+{
     _buffer_len = 0;
-#ifdef MAVLINK_PARALLEL_LOGGING
     _data_buffer_len = 0;
-#endif
     log_info("Log stop send, flushing...");
     /* Write the last partial message to avoid corrupt the end of the file */
     while (_buffer_partial_len) {
@@ -114,34 +116,19 @@ void ULog::stop()
             break;
         }
     }
-#ifdef MAVLINK_PARALLEL_LOGGING
     while (_data_buffer_partial_len) {
         if (!_logging_flush_data()) {
             break;
         }
     }
-#endif
-    _closing = true;
-    _log_data_received = true;
+    LogEndpoint::stop();
+    _closing = false;
 }
 
 int ULog::write_msg(const struct buffer *buffer)
 {
     const bool mavlink2 = buffer->data[0] == MAVLINK_STX;
     uint8_t trimmed_zeros;
-
-    if (buffer->curr.msg_id == MAVLINK_MSG_ID_HEARTBEAT) {
-        if (_closing) {
-            if (_log_data_received) {
-                _log_data_received = false;
-            } else {
-                _closing = false;
-                log_info("Closing file..");
-                LogEndpoint::stop();
-                log_info("Closed.");
-            }
-        }
-    }
 
     /* set the expected system id to the first autopilot that we get a heartbeat from */
     if (_target_system_id == -1 && buffer->curr.msg_id == MAVLINK_MSG_ID_HEARTBEAT
@@ -213,7 +200,6 @@ int ULog::write_msg(const struct buffer *buffer)
         _send_msg(&msg, _target_system_id);
         /* message will be handled by MAVLINK_MSG_ID_LOGGING_DATA case */
 
-#ifdef MAVLINK_PARALLEL_LOGGING
         if (trimmed_zeros) {
             mavlink_logging_data_t ulog_data;
             memcpy(&ulog_data, buffer->curr.payload, payload_len);
@@ -224,13 +210,8 @@ int ULog::write_msg(const struct buffer *buffer)
             _logging_process(ulog_data);
         }
         break;
-#else
-        //#pragma GCC diagnostic ignored "-Wimplicit-fallthrough="
-        /* fall through */
-#endif
     }
     case MAVLINK_MSG_ID_LOGGING_DATA: {
-        _log_data_received = true;
         if (trimmed_zeros) {
             mavlink_logging_data_t ulog_data;
             memcpy(&ulog_data, buffer->curr.payload, payload_len);
@@ -280,7 +261,6 @@ bool ULog::_logging_seq(uint16_t seq, bool *drop, uint16_t *expected_seq)
     return true;
 }
 
-#ifdef MAVLINK_PARALLEL_LOGGING
 void ULog::_logging_process(mavlink_logging_data_t *msg)
 {
     /* Waiting for ULog header? */
@@ -290,14 +270,16 @@ void ULog::_logging_process(mavlink_logging_data_t *msg)
         if (msg->length < ULOG_HEADER_SIZE) {
             /* This should never happen */
             log_error("ULog header is not complete, restarting ULog...");
-            stop();
+            _force_stop = true;
+            stopping();
             start();
             return;
         }
 
         if (memcmp(magic, msg->data, sizeof(magic))) {
             log_error("Invalid ULog Magic number, restarting ULog...");
-            stop();
+            _force_stop = true;
+            stopping();
             start();
             return;
         }
@@ -485,92 +467,6 @@ bool ULog::_logging_flush_data()
 
     return true;
 }
-#else
-void ULog::_logging_data_process(mavlink_logging_data_t *msg)
-{
-    bool drops = false;
-
-    if (!_logging_seq(msg->sequence, &drops, &_expected_seq)) {
-        return;
-    }
-
-    /* Waiting for ULog header? */
-    if (_waiting_header) {
-        const uint8_t magic[] = ULOG_MAGIC;
-
-        if (msg->length < ULOG_HEADER_SIZE) {
-            /* This should never happen */
-            log_error("ULog header is not complete, restarting ULog...");
-            stop();
-            start();
-            return;
-        }
-
-        if (memcmp(magic, msg->data, sizeof(magic))) {
-            log_error("Invalid ULog Magic number, restarting ULog...");
-            stop();
-            start();
-            return;
-        }
-
-        _buffer_partial_len = ULOG_HEADER_SIZE;
-        memcpy(_buffer_partial, msg->data, ULOG_HEADER_SIZE);
-
-        memmove(msg->data, &msg->data[ULOG_HEADER_SIZE], msg->length);
-        msg->length -= ULOG_HEADER_SIZE;
-        _waiting_header = false;
-    }
-
-    if (drops) {
-        _logging_flush();
-
-        _buffer_len = 0;
-        _buffer_index = 0;
-        _waiting_first_msg_offset = true;
-    }
-
-    /*
-     * Do not cause a buffer overflow, it should only happens if a ULog message
-     * don't fit in _msg_buffer
-     */
-    if ((_buffer_len + msg->length) > BUFFER_LEN) {
-        log_warning("Buffer full, dropping everything on buffer");
-
-        _buffer_len = 0;
-        _waiting_first_msg_offset = true;
-    }
-
-    /*
-     * ULog message fits on _buffer but it need move all valid data to
-     * the being of buffer.
-     */
-    if ((_buffer_index + _buffer_len + msg->length) > BUFFER_LEN) {
-        memmove(_buffer, &_buffer[_buffer_index], _buffer_len);
-        _buffer_index = 0;
-    }
-
-    uint8_t begin = 0;
-
-    if (_waiting_first_msg_offset) {
-        if (msg->first_message_offset == NO_FIRST_MSG_OFFSET) {
-            /* no useful information in this message */
-            return;
-        }
-
-        _waiting_first_msg_offset = false;
-        begin = msg->first_message_offset;
-    }
-
-    if (!msg->length) {
-        return;
-    }
-
-    msg->length = msg->length - begin;
-    memcpy(&_buffer[_buffer_index + _buffer_len], &msg->data[begin], msg->length);
-    _buffer_len += msg->length;
-    _logging_flush();
-}
-#endif
 
 bool ULog::_logging_flush()
 {

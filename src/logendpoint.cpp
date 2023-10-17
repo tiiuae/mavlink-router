@@ -42,8 +42,9 @@
 
 #include "mainloop.h"
 
-#define ALIVE_TIMEOUT 5
-#define MAX_RETRIES   10
+#define STOPPING_TIMEOUT 3
+#define ALIVE_TIMEOUT    5
+#define MAX_RETRIES      10
 
 // clang-format off
 const ConfFile::OptionsTable LogEndpoint::option_table[] = {
@@ -64,9 +65,7 @@ LogEndpoint::LogEndpoint(std::string name, LogOptions conf)
     assert(!_config.logs_dir.empty());
     _add_sys_comp_id(LOG_ENDPOINT_SYSTEM_ID, 0);
     _fsync_cb.aio_fildes = -1;
-#ifdef MAVLINK_PARALLEL_LOGGING
     _fsync_data_cb.aio_fildes = -1;
-#endif
 
 #if HAVE_DECL_AIO_INIT
     aioinit aio_init_data{};
@@ -356,6 +355,20 @@ int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesi
     return -EEXIST;
 }
 
+void LogEndpoint::stopping()
+{
+    // Disable alive timeout in this point, because stopping timeout utilize the same message counters
+    if (_timeout.alive) {
+        Mainloop::get_instance().del_timeout(_timeout.alive);
+        _timeout.alive = nullptr;
+    }
+    if (!_start_stopping_timeout()) {
+        log_warning("Could not start stopping timeout - mavlink router log won't be able "
+                    "to detect when all the log messages are received. Stop immediately");
+        stop();
+    }
+}
+
 void LogEndpoint::stop()
 {
     Mainloop &mainloop = Mainloop::get_instance();
@@ -364,18 +377,23 @@ void LogEndpoint::stop()
         _timeout.logging_start = nullptr;
     }
 
-    if (_timeout.alive) {
-        mainloop.del_timeout(_timeout.alive);
-        _timeout.alive = nullptr;
-    }
-
     if (_timeout.fsync) {
         mainloop.del_timeout(_timeout.fsync);
         _timeout.fsync = nullptr;
     }
 
     char log_file[PATH_MAX];
-#ifdef MAVLINK_PARALLEL_LOGGING
+
+    if (_timeout.fsync_data) {
+        mainloop.del_timeout(_timeout.fsync_data);
+        _timeout.fsync_data = nullptr;
+    }
+
+    if (_timeout.stopping) {
+        mainloop.del_timeout(_timeout.stopping);
+        _timeout.stopping = nullptr;
+    }
+    log_info("Concatenate Data & Ulg files");
     fsync(_datafile);
     close(_datafile);
     _datafile = -1;
@@ -395,26 +413,24 @@ void LogEndpoint::stop()
             log_error("Unable to open Data file for concatenation (%s): (%m)", log_file);
         }
     }
-#endif
 
     fsync(_file);
     close(_file);
     _file = -1;
     _fsync_cb.aio_fildes = -1;
 
-#ifdef MAVLINK_PARALLEL_LOGGING
     // Remove data file
     int err = remove(log_file);
     if (err < 0) {
         log_error("Error deleting datafile %s: %m", log_file);
     }
-#endif
 
     // change file permissions to read-only to mark them as finished
     if (snprintf(log_file, sizeof(log_file), "%s/%s", _config.logs_dir.c_str(), _filename)
         < (int)sizeof(log_file)) {
         chmod(log_file, S_IRUSR | S_IRGRP | S_IROTH);
     }
+    log_info("Logging ended.");
 }
 
 bool LogEndpoint::start()
@@ -433,13 +449,11 @@ bool LogEndpoint::start()
         return false;
     }
 
-#ifdef MAVLINK_PARALLEL_LOGGING
     _datafile = _get_file("data", _datafilename, sizeof(_datafilename));
     if (_datafile < 0) {
         _datafile = -1;
         return false;
     }
-#endif
 
     _timeout.logging_start = Mainloop::get_instance().add_timeout(
         MSEC_PER_SEC,
@@ -459,7 +473,6 @@ bool LogEndpoint::start()
         goto fsync_timeout_error;
     }
 
-#ifdef MAVLINK_PARALLEL_LOGGING
     // Call fsync_data once per second
     _timeout.fsync_data
         = Mainloop::get_instance().add_timeout(MSEC_PER_SEC,
@@ -474,9 +487,6 @@ bool LogEndpoint::start()
              _target_system_id,
              _filename,
              _datafilename);
-#else
-    log_info("Logging target system_id=%u on %s", _target_system_id, _filename);
-#endif
     return true;
 
 fsync_timeout_error:
@@ -485,11 +495,19 @@ fsync_timeout_error:
 logging_timeout_error:
     close(_file);
     _file = -1;
-#ifdef MAVLINK_PARALLEL_LOGGING
     close(_datafile);
     _datafile = -1;
-#endif
     return false;
+}
+
+bool LogEndpoint::_stopping_timeout()
+{
+    if (_timeout_write_total == _stat.write.total) {
+        log_info("All log messages received, stop logging");
+        stop();
+    }
+    _timeout_write_total = _stat.write.total;
+    return true;
 }
 
 bool LogEndpoint::_alive_timeout()
@@ -522,7 +540,6 @@ bool LogEndpoint::_fsync()
     return true;
 }
 
-#ifdef MAVLINK_PARALLEL_LOGGING
 bool LogEndpoint::_fsync_data()
 {
     if (_datafile < 0) {
@@ -540,7 +557,6 @@ bool LogEndpoint::_fsync_data()
 
     return true;
 }
-#endif
 
 void LogEndpoint::_remove_logging_start_timeout()
 {
@@ -555,6 +571,15 @@ bool LogEndpoint::_start_alive_timeout()
                                                std::bind(&LogEndpoint::_alive_timeout, this),
                                                this);
     return !!_timeout.alive;
+}
+
+bool LogEndpoint::_start_stopping_timeout()
+{
+    _timeout.stopping
+        = Mainloop::get_instance().add_timeout(MSEC_PER_SEC * STOPPING_TIMEOUT,
+                                               std::bind(&LogEndpoint::_stopping_timeout, this),
+                                               this);
+    return !!_timeout.stopping;
 }
 
 void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
@@ -583,11 +608,13 @@ void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
             const bool is_armed = heartbeat->base_mode & MAV_MODE_FLAG_SAFETY_ARMED;
 
             if (_file == -1 && is_armed) {
+                log_info("Arming detected");
                 if (!start()) {
                     _config.log_mode = LogMode::disabled;
                 }
-            } else if (_file != -1 && !is_armed) {
-                stop();
+            } else if (_file != -1 && !is_armed && !_closing) {
+                log_info("Disarming detected");
+                stopping();
             }
         }
     }
