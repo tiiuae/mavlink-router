@@ -27,11 +27,8 @@
 #include "endpoint.h"
 #include "timeout.h"
 
-#define LOG_ENDPOINT_SYSTEM_ID 2
-
-#ifdef MAVLINK_PARALLEL_LOGGING
-#    define LOG_ENDPOINT_DATA_BUF_SIZE 1024
-#endif
+#define LOG_ENDPOINT_SYSTEM_ID     2
+#define LOG_ENDPOINT_DATA_BUF_SIZE 1024
 
 enum class LogMode {
     always = 0,  ///< Log from start until mavlink-router exits
@@ -58,6 +55,7 @@ public:
     virtual bool start();
     virtual void stop();
 
+    virtual void stopping();
     /**
      * Check existing log files and mark logs as read-only if needed.
      * This handles the case where the system (or mavlink-router) crashed or
@@ -75,37 +73,33 @@ protected:
     LogOptions _config;
     int _target_system_id;
     int _file = -1;
-#ifdef MAVLINK_PARALLEL_LOGGING
     int _datafile = -1;
-#endif
 
     struct {
         Timeout *logging_start = nullptr;
         Timeout *fsync = nullptr;
-#ifdef MAVLINK_PARALLEL_LOGGING
         Timeout *fsync_data = nullptr;
-#endif
+        Timeout *stopping = nullptr;
         Timeout *alive = nullptr;
     } _timeout;
     uint32_t _timeout_write_total = 0;
     aiocb _fsync_cb = {};
-#ifdef MAVLINK_PARALLEL_LOGGING
     aiocb _fsync_data_cb = {};
-#endif
+    bool _closing = false;
 
     virtual const char *_get_logfile_extension() = 0;
 
     void _send_msg(const mavlink_message_t *msg, int target_sysid);
     void _remove_logging_start_timeout();
     bool _start_alive_timeout();
+    bool _start_stopping_timeout();
 
     virtual bool _logging_start_timeout() = 0;
     virtual bool _alive_timeout();
+    virtual bool _stopping_timeout();
 
     bool _fsync();
-#ifdef MAVLINK_PARALLEL_LOGGING
     bool _fsync_data();
-#endif
 
     void _handle_auto_start_stop(const struct buffer *pbuf);
 
@@ -121,8 +115,6 @@ private:
     void _delete_old_logs();
 
     char _filename[64];
-#ifdef MAVLINK_PARALLEL_LOGGING
     char _datafilename[64];
     uint8_t _data_buf[LOG_ENDPOINT_DATA_BUF_SIZE];
-#endif
 };

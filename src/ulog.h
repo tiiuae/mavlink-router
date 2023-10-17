@@ -31,6 +31,8 @@ public:
     bool start() override;
     void stop() override;
 
+    void stopping();
+
     int write_msg(const struct buffer *buffer) override;
     int flush_pending_msgs() override { return -ENOSYS; }
 
@@ -45,7 +47,6 @@ private:
     bool _waiting_header = true;
     bool _waiting_first_msg_offset = false;
 
-#ifdef MAVLINK_PARALLEL_LOGGING
     uint16_t _expected_data_seq = 0;
     bool _data_waiting_first_msg_offset = false;
     uint8_t _data_buffer[BUFFER_LEN];
@@ -54,7 +55,8 @@ private:
     uint16_t _data_buffer_index = 0;
     uint8_t _data_buffer_partial[BUFFER_LEN / 2];
     uint16_t _data_buffer_partial_len = 0;
-#endif
+    bool _force_stop = false;
+
     uint8_t _buffer[BUFFER_LEN];
     uint16_t _buffer_len = 0;
     /* Where valid data starts on buffer */
@@ -62,14 +64,9 @@ private:
     uint8_t _buffer_partial[BUFFER_LEN / 2];
     uint16_t _buffer_partial_len = 0;
 
-    bool _closing = false;
-    bool _log_data_received = false;
-
     bool _logging_seq(uint16_t seq, bool *drop, uint16_t *expected_seq);
     void _logging_data_process(mavlink_logging_data_t *msg);
     bool _logging_flush();
-#ifdef MAVLINK_PARALLEL_LOGGING
     void _logging_process(mavlink_logging_data_t *msg);
     bool _logging_flush_data();
-#endif
 };
