@@ -104,7 +104,8 @@ protected:
     void _handle_auto_start_stop(const struct buffer *pbuf);
 
 private:
-    int _get_file(const char *extension, char *filename, size_t fnamesize);
+    int _get_file(const char *extension, char *filename, size_t fnamesize,
+                  bool use_exact_name = false);
     static uint32_t _get_prefix(DIR *dir);
     static DIR *_open_or_create_dir(const char *name);
 
