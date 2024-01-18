@@ -296,7 +296,8 @@ DIR *LogEndpoint::_open_or_create_dir(const char *name)
     return dir;
 }
 
-int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesize)
+int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesize,
+                           bool use_exact_name)
 {
     time_t t = time(nullptr);
     struct tm *timeinfo = localtime(&t);
@@ -317,18 +318,25 @@ int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesi
     dir_fd = dirfd(dir);
 
     for (j = 0; j <= MAX_RETRIES; j++) {
-        r = snprintf(filename,
-                     fnamesize,
-                     "%05u-%i-%02i-%02i_%02i-%02i-%02i.%s",
-                     i + j,
-                     timeinfo->tm_year + 1900,
-                     timeinfo->tm_mon + 1,
-                     timeinfo->tm_mday,
-                     timeinfo->tm_hour,
-                     timeinfo->tm_min,
-                     timeinfo->tm_sec,
-                     extension);
-
+        if (use_exact_name) {
+            if (strlen(filename) < fnamesize) {
+                log_error("Filename too long");
+                return -1;
+            }
+            r = snprintf(filename, fnamesize, "%s", filename);
+        } else {
+            r = snprintf(filename,
+                         fnamesize,
+                         "%05u-%i-%02i-%02i_%02i-%02i-%02i.%s",
+                         i + j,
+                         timeinfo->tm_year + 1900,
+                         timeinfo->tm_mon + 1,
+                         timeinfo->tm_mday,
+                         timeinfo->tm_hour,
+                         timeinfo->tm_min,
+                         timeinfo->tm_sec,
+                         extension);
+        }
         if (r < 1 || (size_t)r >= fnamesize) {
             log_error("Error formatting Log file name: (%m)");
             return -1;
@@ -340,7 +348,12 @@ int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesi
                 log_error("Unable to open Log file(%s): (%m)", filename);
                 return -1;
             }
-            continue;
+            if (!use_exact_name) {
+                continue;
+            } else {
+                log_error("Log file(%s) already exists: (%m)", filename);
+                return -1;
+            }
         }
 
         // Ensure the directory entry of the file is written to disk
@@ -435,6 +448,8 @@ void LogEndpoint::stop()
 
 bool LogEndpoint::start()
 {
+    char *dot = nullptr;
+
     if (_file != -1) {
         log_warning("Log already started");
         return false;
@@ -449,7 +464,15 @@ bool LogEndpoint::start()
         return false;
     }
 
-    _datafile = _get_file("data", _datafilename, sizeof(_datafilename));
+    // Generate _datafilename from _filename by replacing .ulg with .data
+    strncpy(_datafilename, _filename, sizeof(_datafilename));
+    dot = strpbrk(_datafilename, ".");
+    dot[0] = '\0';
+    strncat(_datafilename, ".data", sizeof(_datafilename));
+
+    // get file handle by using given _datafilename instead of generating it
+    //  use_exact_name = true
+    _datafile = _get_file("data", _datafilename, sizeof(_datafilename), true);
     if (_datafile < 0) {
         _datafile = -1;
         return false;
