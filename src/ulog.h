@@ -31,10 +31,8 @@ public:
     bool start() override;
     void stop() override;
 
-    void stopping();
-
     int write_msg(const struct buffer *buffer) override;
-    int flush_pending_msgs() override { return -ENOSYS; }
+    int flush_pending_msgs() override;
 
 protected:
     ssize_t _read_msg(uint8_t *buf, size_t len) override { return 0; };
@@ -69,4 +67,6 @@ private:
     bool _logging_flush();
     void _logging_process(mavlink_logging_data_t *msg);
     bool _logging_flush_data();
+
+    void _send_stop();
 };

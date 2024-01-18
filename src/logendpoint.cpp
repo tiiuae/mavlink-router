@@ -46,6 +46,10 @@
 #define ALIVE_TIMEOUT    5
 #define MAX_RETRIES      10
 
+#define STARTING_TIMEOUT_MS 50
+#define STOPPING_TIMEOUT_MS (STOPPING_TIMEOUT * 1000)
+#define ALIVE_TIMEOUT_MS    (ALIVE_TIMEOUT * 1000)
+
 // clang-format off
 const ConfFile::OptionsTable LogEndpoint::option_table[] = {
     {"Log",             false, ConfFile::parse_stdstring,           OPTIONS_TABLE_STRUCT_FIELD(LogOptions, logs_dir)},
@@ -319,11 +323,11 @@ int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesi
 
     for (j = 0; j <= MAX_RETRIES; j++) {
         if (use_exact_name) {
-            if (strlen(filename) < fnamesize) {
+            if (strlen(filename) >= fnamesize) {
                 log_error("Filename too long");
                 return -1;
             }
-            r = snprintf(filename, fnamesize, "%s", filename);
+            r = strlen(filename);
         } else {
             r = snprintf(filename,
                          fnamesize,
@@ -337,6 +341,7 @@ int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesi
                          timeinfo->tm_sec,
                          extension);
         }
+
         if (r < 1 || (size_t)r >= fnamesize) {
             log_error("Error formatting Log file name: (%m)");
             return -1;
@@ -368,27 +373,17 @@ int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesi
     return -EEXIST;
 }
 
-void LogEndpoint::stopping()
+void LogEndpoint::stop()
 {
-    // Disable alive timeout in this point, because stopping timeout utilize the same message counters
-    if (_timeout.alive) {
-        Mainloop::get_instance().del_timeout(_timeout.alive);
-        _timeout.alive = nullptr;
-    }
-    if (!_start_stopping_timeout()) {
-        log_warning("Could not start stopping timeout - mavlink router log won't be able "
-                    "to detect when all the log messages are received. Stop immediately");
-        stop();
+    std::lock_guard<std::recursive_mutex> lock(_state_mtx);
+    if (_is_logging_started()) {
+        _handle_logging_state(LoggingState::stopping);
     }
 }
 
-void LogEndpoint::stop()
+void LogEndpoint::_do_stop()
 {
     Mainloop &mainloop = Mainloop::get_instance();
-    if (_timeout.logging_start) {
-        mainloop.del_timeout(_timeout.logging_start);
-        _timeout.logging_start = nullptr;
-    }
 
     if (_timeout.fsync) {
         mainloop.del_timeout(_timeout.fsync);
@@ -402,10 +397,6 @@ void LogEndpoint::stop()
         _timeout.fsync_data = nullptr;
     }
 
-    if (_timeout.stopping) {
-        mainloop.del_timeout(_timeout.stopping);
-        _timeout.stopping = nullptr;
-    }
     log_info("Concatenate Data & Ulg files");
     fsync(_datafile);
     close(_datafile);
@@ -448,6 +439,16 @@ void LogEndpoint::stop()
 
 bool LogEndpoint::start()
 {
+    std::lock_guard<std::recursive_mutex> lock(_state_mtx);
+    if (_logging_state == LoggingState::idle) {
+        _handle_logging_state(LoggingState::starting);
+        return true;
+    }
+    return false;
+}
+
+bool LogEndpoint::_do_start()
+{
     char *dot = nullptr;
 
     if (_file != -1) {
@@ -478,15 +479,6 @@ bool LogEndpoint::start()
         return false;
     }
 
-    _timeout.logging_start = Mainloop::get_instance().add_timeout(
-        MSEC_PER_SEC,
-        std::bind(&LogEndpoint::_logging_start_timeout, this),
-        this);
-    if (!_timeout.logging_start) {
-        log_error("Unable to add timeout");
-        goto logging_timeout_error;
-    }
-
     // Call fsync once per second
     _timeout.fsync = Mainloop::get_instance().add_timeout(MSEC_PER_SEC,
                                                           std::bind(&LogEndpoint::_fsync, this),
@@ -513,9 +505,6 @@ bool LogEndpoint::start()
     return true;
 
 fsync_timeout_error:
-    Mainloop::get_instance().del_timeout(_timeout.logging_start);
-    _timeout.logging_start = nullptr;
-logging_timeout_error:
     close(_file);
     _file = -1;
     close(_datafile);
@@ -523,25 +512,49 @@ logging_timeout_error:
     return false;
 }
 
+bool LogEndpoint::_state_timeout()
+{
+    std::lock_guard<std::recursive_mutex> lock(_state_mtx);
+
+    switch (_logging_state) {
+    case LoggingState::starting:
+        _logging_start_timeout();
+        _handle_logging_state(LoggingState::started);
+        break;
+    case LoggingState::started:
+        if (_timeout_write_total == _stat.write.total) {
+            log_warning("No Log messages received in %u seconds...", ALIVE_TIMEOUT);
+        }
+        _timeout_write_total = _stat.write.total;
+        break;
+    case LoggingState::stopping:
+        if (_timeout_write_total == _stat.write.total) {
+            log_info("All log messages received, stop logging");
+            _handle_logging_state(LoggingState::stopped);
+        }
+        _timeout_write_total = _stat.write.total;
+        break;
+    case LoggingState::stopped:
+        log_error("timeout in stopped state");
+        break;
+    case LoggingState::idle:
+        log_error("timeout in idle state");
+        break;
+    case LoggingState::error:
+        log_error("timeout in error state");
+        break;
+    }
+
+    return true;
+}
+
 bool LogEndpoint::_stopping_timeout()
 {
-    if (_timeout_write_total == _stat.write.total) {
-        log_info("All log messages received, stop logging");
-        stop();
-    }
-    _timeout_write_total = _stat.write.total;
     return true;
 }
 
 bool LogEndpoint::_alive_timeout()
 {
-    if (_timeout_write_total == _stat.write.total) {
-        log_warning("No Log messages received in %u seconds restarting Log...", ALIVE_TIMEOUT);
-        stop();
-        start();
-    }
-
-    _timeout_write_total = _stat.write.total;
     return true;
 }
 
@@ -581,28 +594,23 @@ bool LogEndpoint::_fsync_data()
     return true;
 }
 
-void LogEndpoint::_remove_logging_start_timeout()
+bool LogEndpoint::_start_state_timeout(uint32_t timeout_ms)
 {
-    Mainloop::get_instance().del_timeout(_timeout.logging_start);
-    _timeout.logging_start = nullptr;
+    _timeout.state
+        = Mainloop::get_instance().add_timeout(timeout_ms,
+                                               std::bind(&LogEndpoint::_state_timeout, this),
+                                               this);
+
+    return !!_timeout.state;
 }
 
-bool LogEndpoint::_start_alive_timeout()
+void LogEndpoint::_remove_state_timeout()
 {
-    _timeout.alive
-        = Mainloop::get_instance().add_timeout(MSEC_PER_SEC * ALIVE_TIMEOUT,
-                                               std::bind(&LogEndpoint::_alive_timeout, this),
-                                               this);
-    return !!_timeout.alive;
-}
-
-bool LogEndpoint::_start_stopping_timeout()
-{
-    _timeout.stopping
-        = Mainloop::get_instance().add_timeout(MSEC_PER_SEC * STOPPING_TIMEOUT,
-                                               std::bind(&LogEndpoint::_stopping_timeout, this),
-                                               this);
-    return !!_timeout.stopping;
+    if (!_timeout.state) {
+        return;
+    }
+    Mainloop::get_instance().del_timeout(_timeout.state);
+    _timeout.state = nullptr;
 }
 
 void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
@@ -612,8 +620,12 @@ void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
         return;
     }
 
+    if (_is_logging_error()) {
+        return;
+    }
+
     if (_config.log_mode == LogMode::always) {
-        if (_file == -1) {
+        if (!_is_logging_started()) {
             if (!start()) {
                 _config.log_mode = LogMode::disabled;
             }
@@ -630,14 +642,14 @@ void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
             const mavlink_heartbeat_t *heartbeat = (mavlink_heartbeat_t *)pbuf->curr.payload;
             const bool is_armed = heartbeat->base_mode & MAV_MODE_FLAG_SAFETY_ARMED;
 
-            if (_file == -1 && is_armed) {
+            if (is_logging_idle() && is_armed) {
                 log_info("Arming detected");
                 if (!start()) {
-                    _config.log_mode = LogMode::disabled;
+                    log_warning("Could not start logging on arming, yet. Retrying..");
                 }
-            } else if (_file != -1 && !is_armed && !_closing) {
+            } else if (_is_logging_started() && !is_armed) {
                 log_info("Disarming detected");
-                stopping();
+                stop();
             }
         }
     }
@@ -716,4 +728,69 @@ int LogEndpoint::parse_fcu_id(const char *val, size_t val_len, void *storage, si
     }
 
     return 0;
+}
+
+void LogEndpoint::_handle_logging_state(LoggingState new_state)
+{
+
+    if (_logging_state == new_state) {
+        return;
+    }
+
+    _remove_state_timeout();
+
+    switch (new_state) {
+    case LoggingState::starting:
+        log_info("[LOGGING] Starting..");
+        _logging_state = new_state;
+        if (!_do_start()) {
+            _handle_logging_state(LoggingState::error);
+        } else {
+            _start_state_timeout(STARTING_TIMEOUT_MS);
+        }
+        break;
+    case LoggingState::started:
+        log_info("[LOGGING] Started");
+        _logging_state = new_state;
+        _start_state_timeout(ALIVE_TIMEOUT_MS);
+        break;
+    case LoggingState::stopping:
+        log_info("[LOGGING] Stopping..");
+        _logging_state = new_state;
+        _start_state_timeout(STOPPING_TIMEOUT_MS);
+        break;
+    case LoggingState::stopped:
+        log_info("[LOGGING] Stopped -> Flushing..");
+        _logging_state = new_state;
+        flush_pending_msgs();
+        _do_stop();
+        _handle_logging_state(LoggingState::idle);
+        break;
+    case LoggingState::idle:
+        log_info("[LOGGING] Idle");
+        _logging_state = new_state;
+        break;
+    case LoggingState::error:
+        log_error("[LOGGING] Error");
+        _logging_state = new_state;
+        break;
+    }
+}
+
+bool LogEndpoint::_is_logging_started()
+{
+    std::lock_guard<std::recursive_mutex> lock(_state_mtx);
+    return (_logging_state == LoggingState::started || _logging_state == LoggingState::starting);
+}
+
+bool LogEndpoint::_is_logging_error()
+{
+    std::lock_guard<std::recursive_mutex> lock(_state_mtx);
+    return (_logging_state == LoggingState::error);
+}
+
+bool LogEndpoint::is_logging_idle()
+{
+    std::lock_guard<std::recursive_mutex> lock(_state_mtx);
+    return (_logging_state == LoggingState::idle);
 }

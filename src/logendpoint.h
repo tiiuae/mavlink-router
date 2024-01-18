@@ -16,6 +16,7 @@
  * limitations under the License.
  */
 #pragma once
+#include <mutex>
 
 #include <common/conf_file.h>
 
@@ -37,6 +38,15 @@ enum class LogMode {
     disabled ///< Do not try to start logging (only used internally)
 };
 
+enum class LoggingState {
+    starting, ///< Logging is starting
+    started,  ///< Logging is started
+    stopping, ///< Logging is stopping
+    stopped,  ///< Logging is stopped and waiting for data flush
+    idle,     ///< Logging is idle
+    error     ///< Logging is in error state
+};
+
 struct LogOptions {
     enum class MavDialect { Auto, Common, Ardupilotmega };
 
@@ -55,13 +65,14 @@ public:
     virtual bool start();
     virtual void stop();
 
-    virtual void stopping();
     /**
      * Check existing log files and mark logs as read-only if needed.
      * This handles the case where the system (or mavlink-router) crashed or
      * lost power.
      */
     void mark_unfinished_logs();
+
+    bool is_logging_idle();
 
     static const ConfFile::OptionsTable option_table[];
     static int parse_mavlink_dialect(const char *val, size_t val_len, void *storage,
@@ -77,37 +88,48 @@ protected:
 
     struct {
         Timeout *logging_start = nullptr;
+        Timeout *state = nullptr;
         Timeout *fsync = nullptr;
         Timeout *fsync_data = nullptr;
-        Timeout *stopping = nullptr;
-        Timeout *alive = nullptr;
     } _timeout;
     uint32_t _timeout_write_total = 0;
     aiocb _fsync_cb = {};
     aiocb _fsync_data_cb = {};
-    bool _closing = false;
+    LoggingState _state = LoggingState::stopped;
 
     virtual const char *_get_logfile_extension() = 0;
 
     void _send_msg(const mavlink_message_t *msg, int target_sysid);
-    void _remove_logging_start_timeout();
-    bool _start_alive_timeout();
-    bool _start_stopping_timeout();
+
+    void _remove_state_timeout();
+    bool _start_state_timeout(uint32_t timeout_ms);
+
+    void _remove_logging_start_timeout() { }
+    bool _start_alive_timeout() { return true; }
+    bool _start_stopping_timeout() { return true; };
 
     virtual bool _logging_start_timeout() = 0;
     virtual bool _alive_timeout();
     virtual bool _stopping_timeout();
+    bool _state_timeout();
 
     bool _fsync();
     bool _fsync_data();
 
     void _handle_auto_start_stop(const struct buffer *pbuf);
+    void _handle_logging_state(LoggingState new_state);
+
+    bool _is_logging_started();
+    bool _is_logging_error();
 
 private:
     int _get_file(const char *extension, char *filename, size_t fnamesize,
                   bool use_exact_name = false);
     static uint32_t _get_prefix(DIR *dir);
     static DIR *_open_or_create_dir(const char *name);
+
+    bool _do_start();
+    void _do_stop();
 
     /**
      * Delete old logs until a certain amount of free space and total number of log files are met.
@@ -118,4 +140,7 @@ private:
     char _filename[64];
     char _datafilename[64];
     uint8_t _data_buf[LOG_ENDPOINT_DATA_BUF_SIZE];
+
+    std::recursive_mutex _state_mtx;
+    LoggingState _logging_state = LoggingState::idle;
 };
