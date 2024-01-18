@@ -32,11 +32,11 @@ if [ "${LOGGING_DIR}" != "" ]; then
     sed -i "/.General./a \ \ \ \ Log=${LOGGING_DIR}" /etc/mavlink-router/default.conf
 
     echo " "
-    /usr/bin/mavlink-routerd -c /etc/mavlink-router/default.conf
+    exec /usr/bin/mavlink-routerd -c /etc/mavlink-router/default.conf
 
 elif [ "$1" != "" ]; then
-    /usr/bin/mavlink-routerd $args
+    exec /usr/bin/mavlink-routerd $args
 else
-    /usr/bin/mavlink-routerd
+    exec /usr/bin/mavlink-routerd
 fi
 

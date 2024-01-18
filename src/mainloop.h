@@ -134,4 +134,5 @@ private:
 
     static Mainloop _instance;
     static bool _initialized;
+    bool _exit_wait_logging_idle = false;
 };

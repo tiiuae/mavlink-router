@@ -44,6 +44,19 @@ bool ULog::_logging_start_timeout()
     mavlink_message_t msg;
     mavlink_command_long_t cmd;
 
+    _waiting_header = true;
+    _waiting_first_msg_offset = false;
+    _expected_seq = 0;
+    _buffer_len = 0;
+    _buffer_index = 0;
+    _buffer_partial_len = 0;
+
+    _expected_data_seq = 0;
+    _data_waiting_first_msg_offset = false;
+    _data_buffer_len = 0;
+    _data_buffer_index = 0;
+    _data_buffer_partial_len = 0;
+
     bzero(&cmd, sizeof(cmd));
     cmd.command = MAV_CMD_LOGGING_START;
     cmd.target_component = MAV_COMP_ID_ALL;
@@ -57,38 +70,16 @@ bool ULog::_logging_start_timeout()
 
 bool ULog::start()
 {
-    if (!LogEndpoint::start()) {
-        return false;
+    if (LogEndpoint::start()) {
+        return true;
     }
-
-    _waiting_header = true;
-    _waiting_first_msg_offset = false;
-    _expected_seq = 0;
-    _buffer_len = 0;
-    _buffer_index = 0;
-    _buffer_partial_len = 0;
-
-    _expected_data_seq = 0;
-    _data_waiting_first_msg_offset = false;
-    _data_buffer_len = 0;
-    _data_buffer_index = 0;
-    _data_buffer_partial_len = 0;
-    return true;
+    return false;
 }
 
-void ULog::stopping()
+void ULog::_send_stop()
 {
     mavlink_message_t msg;
     mavlink_command_long_t cmd;
-
-    if (_file == -1) {
-        log_info("ULog not started");
-        return;
-    }
-    if (_closing) {
-        return;
-    }
-    _closing = true;
 
     bzero(&cmd, sizeof(cmd));
     cmd.command = MAV_CMD_LOGGING_STOP;
@@ -97,19 +88,20 @@ void ULog::stopping()
 
     mavlink_msg_command_long_encode(LOG_ENDPOINT_SYSTEM_ID, MAV_COMP_ID_ALL, &msg, &cmd);
     _send_msg(&msg, _target_system_id);
-
-    if (_force_stop) {
-        stop();
-    }
-    _force_stop = false;
-    LogEndpoint::stopping();
 }
 
 void ULog::stop()
 {
+    _send_stop();
+    LogEndpoint::stop();
+}
+
+int ULog::flush_pending_msgs()
+{
     _buffer_len = 0;
     _data_buffer_len = 0;
     log_info("Log stop send, flushing...");
+
     /* Write the last partial message to avoid corrupt the end of the file */
     while (_buffer_partial_len) {
         if (!_logging_flush()) {
@@ -121,8 +113,7 @@ void ULog::stop()
             break;
         }
     }
-    LogEndpoint::stop();
-    _closing = false;
+    return 0;
 }
 
 int ULog::write_msg(const struct buffer *buffer)
@@ -269,18 +260,12 @@ void ULog::_logging_process(mavlink_logging_data_t *msg)
 
         if (msg->length < ULOG_HEADER_SIZE) {
             /* This should never happen */
-            log_error("ULog header is not complete, restarting ULog...");
-            _force_stop = true;
-            stopping();
-            start();
+            log_error("ULog header is not complete...");
             return;
         }
 
         if (memcmp(magic, msg->data, sizeof(magic))) {
-            log_error("Invalid ULog Magic number, restarting ULog...");
-            _force_stop = true;
-            stopping();
-            start();
+            log_error("Invalid ULog Magic number...");
             return;
         }
 

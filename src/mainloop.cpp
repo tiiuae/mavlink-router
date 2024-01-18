@@ -38,6 +38,7 @@ bool Mainloop::_initialized = false;
 
 static void exit_signal_handler(int signum)
 {
+    log_info("\nSignal: %d", signum);
     Mainloop::instance().request_exit(0);
 }
 
@@ -76,6 +77,12 @@ Mainloop &Mainloop::instance()
 void Mainloop::request_exit(int retcode)
 {
     _retcode = retcode;
+
+    if (_log_endpoint != nullptr) {
+        _log_endpoint->stop();
+        _exit_wait_logging_idle = true;
+    }
+
     should_exit.store(true, std::memory_order_relaxed);
 }
 
@@ -257,7 +264,8 @@ int Mainloop::loop()
                 std::bind(&Mainloop::_log_aggregate_timeout, this, std::placeholders::_1),
                 this);
 
-    while (!should_exit.load(std::memory_order_relaxed)) {
+    while (!should_exit.load(std::memory_order_relaxed) || _exit_wait_logging_idle) {
+
         int i;
 
         r = epoll_wait(epollfd, events, max_events, -1);
@@ -304,10 +312,14 @@ int Mainloop::loop()
         }
 
         _del_timeouts();
-    }
 
-    if (_log_endpoint != nullptr) {
-        _log_endpoint->stopping();
+        if (_exit_wait_logging_idle) {
+            if (_log_endpoint == nullptr) {
+                _exit_wait_logging_idle = false;
+            } else if (_log_endpoint->is_logging_idle()) {
+                _exit_wait_logging_idle = false;
+            }
+        }
     }
 
     clear_endpoints();
@@ -320,6 +332,7 @@ int Mainloop::loop()
         delete current;
     }
 
+    log_info("Exit.");
     return _retcode;
 }
 
