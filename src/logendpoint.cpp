@@ -376,7 +376,7 @@ int LogEndpoint::_get_file(const char *extension, char *filename, size_t fnamesi
 void LogEndpoint::stop()
 {
     std::lock_guard<std::recursive_mutex> lock(_state_mtx);
-    if (_is_logging_started()) {
+    if (_is_logging_start_initiated()) {
         _handle_logging_state(LoggingState::stopping);
     }
 }
@@ -625,7 +625,7 @@ void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
     }
 
     if (_config.log_mode == LogMode::always) {
-        if (!_is_logging_started()) {
+        if (!_is_logging_start_initiated()) {
             if (!start()) {
                 _config.log_mode = LogMode::disabled;
             }
@@ -647,7 +647,7 @@ void LogEndpoint::_handle_auto_start_stop(const struct buffer *pbuf)
                 if (!start()) {
                     log_warning("Could not start logging on arming, yet. Retrying..");
                 }
-            } else if (_is_logging_started() && !is_armed) {
+            } else if (_is_logging_start_initiated() && !is_armed) {
                 log_info("Disarming detected");
                 stop();
             }
@@ -777,7 +777,13 @@ void LogEndpoint::_handle_logging_state(LoggingState new_state)
     }
 }
 
-bool LogEndpoint::_is_logging_started()
+bool LogEndpoint::_is_logging_waiting_for_start()
+{
+    std::lock_guard<std::recursive_mutex> lock(_state_mtx);
+    return (_logging_state == LoggingState::starting);
+}
+
+bool LogEndpoint::_is_logging_start_initiated()
 {
     std::lock_guard<std::recursive_mutex> lock(_state_mtx);
     return (_logging_state == LoggingState::started || _logging_state == LoggingState::starting);

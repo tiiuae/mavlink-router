@@ -119,7 +119,8 @@ protected:
     void _handle_auto_start_stop(const struct buffer *pbuf);
     void _handle_logging_state(LoggingState new_state);
 
-    bool _is_logging_started();
+    bool _is_logging_waiting_for_start();
+    bool _is_logging_start_initiated();
     bool _is_logging_error();
 
 private:
