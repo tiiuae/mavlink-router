@@ -378,6 +378,8 @@ void LogEndpoint::stop()
     std::lock_guard<std::recursive_mutex> lock(_state_mtx);
     if (_is_logging_start_initiated()) {
         _handle_logging_state(LoggingState::stopping);
+    } else {
+        _handle_logging_state(LoggingState::idle);
     }
 }
 
