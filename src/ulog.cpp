@@ -163,19 +163,20 @@ int ULog::write_msg(const struct buffer *buffer)
             memset(((uint8_t *)&cmd) + payload_len, 0, trimmed_zeros);
         }
 
-        if (!_timeout.logging_start || cmd.command != MAV_CMD_LOGGING_START) {
+        if (!_is_logging_waiting_for_start() || cmd.command != MAV_CMD_LOGGING_START) {
             return buffer->len;
         }
 
         if (cmd.result == MAV_RESULT_ACCEPTED) {
             log_info("Logging request accepted by target device");
-            _remove_logging_start_timeout();
+            _handle_logging_state(LoggingState::started);
             if (!_start_alive_timeout()) {
                 log_warning("Could not start liveness timeout - mavlink router log won't be able "
                             "to detect if flight stack stopped");
             }
         } else {
             log_error("MAV_CMD_LOGGING_START result(%u) is different than accepted", cmd.result);
+            _handle_logging_state(LoggingState::error);
         }
         break;
     }

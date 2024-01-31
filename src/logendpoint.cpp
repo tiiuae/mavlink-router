@@ -520,8 +520,10 @@ bool LogEndpoint::_state_timeout()
 
     switch (_logging_state) {
     case LoggingState::starting:
+        // Timeout getting ack for start logging message
+        // retry starting
+        log_warning("No ack received for start logging message, retrying..");
         _logging_start_timeout();
-        _handle_logging_state(LoggingState::started);
         break;
     case LoggingState::started:
         if (_timeout_write_total == _stat.write.total) {
@@ -748,6 +750,7 @@ void LogEndpoint::_handle_logging_state(LoggingState new_state)
         if (!_do_start()) {
             _handle_logging_state(LoggingState::error);
         } else {
+            _logging_start_timeout();
             _start_state_timeout(STARTING_TIMEOUT_MS);
         }
         break;
