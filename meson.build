@@ -36,6 +36,14 @@ endif
 
 dep_gtest = dependency('gtest', main : true, required : false)
 
+fuzzer_flags = []
+fuzzer_link_flags = []
+
+if get_option('fuzzing')
+    fuzzer_flags = ['-fsanitize=fuzzer,address,undefined']
+    fuzzer_link_flags = ['-fsanitize=fuzzer,address,undefined']
+endif
+
 # Additional warnings
 possible_cc_flags = [
 	    '-Wno-inline',

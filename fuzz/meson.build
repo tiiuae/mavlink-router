@@ -4,7 +4,6 @@
 # meson setup builddir --native-file libfuzzer.ini -Dfuzzing=true
 # Finally, call ninja -C builddir 
 
-
 src_common = include_directories('../src/common')
 mavlink_extra =  [
     include_directories('../modules/mavlink_c_library_v2'),
@@ -21,6 +20,8 @@ mavlink_parse_char_harness = executable(
         dep_rt,
         dep_thread
     ],
+    cpp_args: fuzzer_flags,
+    link_args: fuzzer_link_flags,
     install: false
 )
 
@@ -40,6 +41,8 @@ mavlink_conf_parser_harness = executable(
         dep_rt,
         dep_thread
     ],
+    cpp_args: fuzzer_flags,
+    link_args: fuzzer_link_flags,
     install: false
 )
 
@@ -66,6 +69,8 @@ ulog_harness = executable(
         dep_rt,
         dep_thread
     ],
+    cpp_args: fuzzer_flags,
+    link_args: fuzzer_link_flags,
     install: false
 )
 
@@ -91,6 +96,8 @@ alog_harness = executable(
         dep_rt,
         dep_thread
     ],
+    cpp_args: fuzzer_flags,
+    link_args: fuzzer_link_flags,
     install: false
 )
 
@@ -115,6 +122,8 @@ blog_harness = executable(
         dep_rt,
         dep_thread
     ],
+    cpp_args: fuzzer_flags,
+    link_args: fuzzer_link_flags,
     install: false
 )
 
