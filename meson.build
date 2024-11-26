@@ -40,8 +40,8 @@ fuzzer_flags = []
 fuzzer_link_flags = []
 
 if get_option('fuzzing')
-    fuzzer_flags = ['-fsanitize=fuzzer,address,undefined']
-    fuzzer_link_flags = ['-fsanitize=fuzzer,address,undefined']
+    fuzzer_flags = ['-fsanitize=fuzzer,address,undefined', '-ggdb', '-O2']
+    fuzzer_link_flags = ['-fsanitize=fuzzer,address,undefined', '-ggdb', '-O2']
 endif
 
 # Additional warnings
