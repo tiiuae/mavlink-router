@@ -1,5 +1,5 @@
 # Use ROS builder image just to get the build tools in place
-FROM ghcr.io/tiiuae/fog-ros-baseimage-builder:sha-926c935 AS builder
+FROM ghcr.io/tiiuae/fog-ros-baseimage-builder:sha-c04d413 AS builder
 
 RUN apt update \
     && apt install -y --no-install-recommends \
