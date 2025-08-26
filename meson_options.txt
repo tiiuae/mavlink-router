@@ -2,3 +2,4 @@ option('systemdsystemunitdir',
        description: 'systemd unit directory',
        type: 'string',
        value: 'auto')
+option('fuzzing', type: 'boolean', value: false, description: 'Enable fuzzing mode')
