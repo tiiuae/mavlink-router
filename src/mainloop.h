@@ -27,6 +27,9 @@
 #include "comm.h"
 #include "dedup.h"
 #include "endpoint.h"
+#include <prometheus/counter.h>
+#include <prometheus/exposer.h>
+#include <prometheus/registry.h>
 #include "timeout.h"
 #include "ulog.h"
 
@@ -135,4 +138,8 @@ private:
     static Mainloop _instance;
     static bool _initialized;
     bool _exit_wait_logging_idle = false;
+
+    static std::shared_ptr<prometheus::Registry> metrics_registry;
+    static std::shared_ptr<prometheus::Exposer> metrics_exposer;
+    static prometheus::Counter* route_msg_counter;
 };
