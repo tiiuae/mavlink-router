@@ -33,10 +33,6 @@ WORKDIR /fog-drone
 
 COPY --from=builder /build/build/src/mavlink-routerd /usr/bin
 
-# TODO: can be removed once new fog-health feature lands in fog-ros-baseimage
-COPY --from=ghcr.io/tiiuae/fog-health:latest /usr/bin/fog-health /usr/bin/fog-health
-
 HEALTHCHECK --interval=5s \
-    CMD fog-health check \
-    --diff-rule='mavlink_router_messages_routed_total>=1.0' \
+CMD fog-health check --metric=mavlink_router_messages_routed_total --diff-gte=1.0 \
     --metrics-from=http://localhost:${METRICS_PORT}/metrics --only-if-nonempty=${METRICS_PORT}

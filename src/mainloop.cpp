@@ -38,9 +38,10 @@ static std::atomic<bool> should_exit{false};
 Mainloop Mainloop::_instance{};
 bool Mainloop::_initialized = false;
 
-std::shared_ptr<prometheus::Registry> Mainloop::metrics_registry = std::make_shared<prometheus::Registry>();
+std::shared_ptr<prometheus::Registry> Mainloop::metrics_registry
+    = std::make_shared<prometheus::Registry>();
 std::shared_ptr<prometheus::Exposer> Mainloop::metrics_exposer;
-prometheus::Counter* Mainloop:: route_msg_counter;
+prometheus::Counter *Mainloop::route_msg_counter;
 
 static void exit_signal_handler(int signum)
 {
@@ -68,14 +69,16 @@ Mainloop &Mainloop::init()
     _initialized = true;
 
     route_msg_counter = &(prometheus::BuildCounter()
-        .Name("mavlink_router_messages_routed_total")
-        .Help("Number of messages routed by mavlink-router")
-        .Register(*metrics_registry).Add({}));
+                              .Name("mavlink_router_messages_routed_total")
+                              .Help("Number of messages routed by mavlink-router")
+                              .Register(*metrics_registry)
+                              .Add({}));
 
     auto metrics_port = getenv("METRICS_PORT");
     if (metrics_port != nullptr) // start HTTP endpoint only if requested
     {
-        metrics_exposer = std::make_shared<prometheus::Exposer>("0.0.0.0:" + std::string(metrics_port));
+        metrics_exposer
+            = std::make_shared<prometheus::Exposer>("0.0.0.0:" + std::string(metrics_port));
 
         metrics_exposer->RegisterCollectable(metrics_registry);
     }
