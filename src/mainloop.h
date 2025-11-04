@@ -29,6 +29,9 @@
 #include "endpoint.h"
 #include "timeout.h"
 #include "ulog.h"
+#include <prometheus/counter.h>
+#include <prometheus/exposer.h>
+#include <prometheus/registry.h>
 
 struct Configuration {
     std::string conf_file_name;        ///< CLI "conf-file" only!
@@ -135,4 +138,8 @@ private:
     static Mainloop _instance;
     static bool _initialized;
     bool _exit_wait_logging_idle = false;
+
+    static std::shared_ptr<prometheus::Registry> metrics_registry;
+    static std::shared_ptr<prometheus::Exposer> metrics_exposer;
+    static prometheus::Counter *route_msg_counter;
 };

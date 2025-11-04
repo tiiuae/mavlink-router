@@ -19,7 +19,7 @@ RUN amd64_fix=$([ "$(uname -m)" == "x86_64" ] && echo "-Dc_args='-march=x86-64' 
 #  ▲               runtime ──┐
 #  └── build                 ▼
 
-FROM ghcr.io/tiiuae/fog-minimal-container-image:sha-aa15159 AS runtime
+FROM ghcr.io/tiiuae/fog-ros-baseimage:v3.4.0 AS runtime
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD [""]
@@ -33,3 +33,6 @@ WORKDIR /fog-drone
 
 COPY --from=builder /build/build/src/mavlink-routerd /usr/bin
 
+HEALTHCHECK --interval=5s \
+CMD fog-health check --metric=mavlink_router_messages_routed_total --diff-gte=1.0 \
+    --metrics-from=http://localhost:${METRICS_PORT}/metrics --only-if-nonempty=${METRICS_PORT}

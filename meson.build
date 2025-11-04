@@ -4,7 +4,7 @@ project(
         version: '3',
         license: 'Apache 2.0',
         default_options: [
-                'cpp_std=gnu++11',
+                'cpp_std=gnu++14',
                 'prefix=/usr',
                 'warning_level=2',
                 'buildtype=debugoptimized',
@@ -26,6 +26,7 @@ cc = meson.get_compiler('c', native : false)
 dep_math = cxx.find_library('m')
 dep_rt = cxx.find_library('rt')
 dep_thread = dependency('threads')
+dep_prom = dependency('prometheus-cpp', method: 'cmake', modules: ['prometheus-cpp::pull'], required: true)
 
 systemd_system_unit_dir = get_option('systemdsystemunitdir')
 if systemd_system_unit_dir == 'auto'

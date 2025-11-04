@@ -18,7 +18,9 @@
 #include "mainloop.h"
 
 #include <assert.h>
+#include <cstdlib>
 #include <signal.h>
+#include <string>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
@@ -35,6 +37,11 @@ static std::atomic<bool> should_exit{false};
 
 Mainloop Mainloop::_instance{};
 bool Mainloop::_initialized = false;
+
+std::shared_ptr<prometheus::Registry> Mainloop::metrics_registry
+    = std::make_shared<prometheus::Registry>();
+std::shared_ptr<prometheus::Exposer> Mainloop::metrics_exposer;
+prometheus::Counter *Mainloop::route_msg_counter;
 
 static void exit_signal_handler(int signum)
 {
@@ -61,6 +68,21 @@ Mainloop &Mainloop::init()
 
     _initialized = true;
 
+    route_msg_counter = &(prometheus::BuildCounter()
+                              .Name("mavlink_router_messages_routed_total")
+                              .Help("Number of messages routed by mavlink-router")
+                              .Register(*metrics_registry)
+                              .Add({}));
+
+    auto metrics_port = getenv("METRICS_PORT");
+    if (metrics_port != nullptr) // start HTTP endpoint only if requested
+    {
+        metrics_exposer
+            = std::make_shared<prometheus::Exposer>("0.0.0.0:" + std::string(metrics_port));
+
+        metrics_exposer->RegisterCollectable(metrics_registry);
+    }
+
     return _instance;
 }
 
@@ -84,6 +106,8 @@ void Mainloop::request_exit(int retcode)
     }
 
     should_exit.store(true, std::memory_order_relaxed);
+
+    metrics_exposer = nullptr;
 }
 
 int Mainloop::open()
@@ -181,6 +205,7 @@ void Mainloop::route_msg(struct buffer *buf)
                 should_process_tcp_hangups = true;
             }
             unknown = false;
+            route_msg_counter->Increment();
             break;
         case Endpoint::AcceptState::Filtered:
             log_debug("Endpoint [%d] filtered out message %u to %d/%d from %u/%u",
