@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # To enable flight logging, define LOGGING_DIR env variable
 #
