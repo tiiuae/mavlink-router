@@ -13,7 +13,37 @@
 #                    configured amount of logfiles in the log folder.
 #                    Set to 0 to disable this functionality. Default: 0 (disabled)
 
-args=$@
+args=("$@")
+
+# Takes a list of arguments and prints transformed ones,
+# replacing HOSTNAME[...] patterns with IPs.
+resolve_hostnames() {
+    local arg
+    local new_args=()
+
+    for arg in "$@"; do
+        # Check if the argument contains a HOSTNAME[...] pattern
+        if [[ $arg =~ HOSTNAME\[([^]]*)\] ]]; then
+            local full_match="${BASH_REMATCH[0]}"  # e.g., HOSTNAME[example.com]
+            local hostname="${BASH_REMATCH[1]}"    # e.g., example.com
+
+            local ip
+            ip=$(getent hosts "$hostname" | awk '{print $1; exit}')
+
+            if [[ -z $ip ]]; then
+                echo "Error: could not resolve hostname '$hostname'" >&2
+                exit 1
+            fi
+
+            # Replace the matched pattern with the resolved IP
+            arg=${arg//"$full_match"/$ip}
+        fi
+        new_args+=("$arg")
+    done
+
+    # Print all transformed arguments
+    printf '%s\n' "${new_args[@]}"
+}
 
 if [ "${LOGGING_DIR}" != "" ]; then
     # Mavlink logging enabled
@@ -34,9 +64,11 @@ if [ "${LOGGING_DIR}" != "" ]; then
     echo " "
     exec /usr/bin/mavlink-routerd -c /etc/mavlink-router/default.conf
 
-elif [ "$1" != "" ]; then
-    exec /usr/bin/mavlink-routerd $args
 else
-    exec /usr/bin/mavlink-routerd
+    # mavlink-router does not support hostnames but raw IPs only 🫠
+    # this transforms args like `-e HOSTNAME[fog-navigation]:14590` into `-e 10.20.30.40:14590` where the IP is resolved.
+    args_with_hostnames_resolved=($(resolve_hostnames "${args[@]}"))
+
+    exec /usr/bin/mavlink-routerd "${args_with_hostnames_resolved[@]}"
 fi
 
